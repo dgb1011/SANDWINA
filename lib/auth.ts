@@ -60,25 +60,18 @@ export async function signInWithGoogle() {
 export async function signUpWithGoogle(role: UserRole, adminKey?: string) {
   const supabase = createClient();
 
-  // Create state object with role and admin key (if applicable)
-  const state = {
-    role,
-    adminKey: adminKey || null,
-    timestamp: Date.now(),
-  };
+  // Encode role and adminKey in the redirect URL as query params
+  // This is more reliable than using metadata for OAuth flows
+  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?role=${role}${adminKey ? `&adminKey=${adminKey}` : ''}`;
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+      redirectTo,
       queryParams: {
         access_type: 'offline',
         prompt: 'consent',
       },
-      // Store role in state to retrieve after OAuth
-      skipBrowserRedirect: false,
-      // @ts-ignore - Supabase supports state but types are incomplete
-      data: state,
     },
   });
 

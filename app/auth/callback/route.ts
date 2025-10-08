@@ -10,6 +10,10 @@ export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
 
+  // Get role and adminKey from query params (passed from OAuth signup)
+  const roleParam = requestUrl.searchParams.get('role') as 'client' | 'coach' | 'admin' | null;
+  const adminKeyParam = requestUrl.searchParams.get('adminKey');
+
   if (code) {
     const supabase = createRouteHandlerClient<Database>({ cookies });
 
@@ -31,14 +35,19 @@ export async function GET(request: NextRequest) {
 
       // If profile exists, user is signing in (not signing up)
       if (existingProfile) {
-        return NextResponse.redirect(new URL('/dashboard', request.url));
+        // Redirect to appropriate dashboard based on their existing role
+        const dashboardUrl = existingProfile.role === 'admin'
+          ? '/dashboard/admin'
+          : existingProfile.role === 'coach'
+          ? '/dashboard/coach'
+          : '/dashboard';
+        return NextResponse.redirect(new URL(dashboardUrl, request.url));
       }
 
-      // NEW USER - Profile created automatically by database trigger
-      // The trigger reads user_metadata and creates profile + coach records
-      const metadata = session.user.user_metadata;
-      const role = metadata?.role || 'client';
-      const adminKey = metadata?.adminKey;
+      // NEW USER - Profile was created by trigger with default 'client' role
+      // We need to update it with the actual intended role from query params
+      const role = roleParam || 'client';
+      const adminKey = adminKeyParam;
 
       // Validate admin signup
       if (role === 'admin') {
@@ -50,11 +59,29 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Small delay to ensure trigger completes
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait for trigger to complete creating the profile
+      await new Promise(resolve => setTimeout(resolve, 200));
 
-      // Redirect based on role
+      // Update profile with correct role (trigger created it with default 'client')
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ role })
+        .eq('id', session.user.id);
+
+      if (updateError) {
+        console.error('Error updating profile role:', updateError);
+      }
+
+      // If coach, create coach record
       if (role === 'coach') {
+        const { error: coachError } = await supabase
+          .from('coaches')
+          .insert({ id: session.user.id, is_approved: false });
+
+        if (coachError) {
+          console.error('Error creating coach record:', coachError);
+        }
+
         return NextResponse.redirect(new URL('/dashboard/coach/onboarding', request.url));
       }
 
