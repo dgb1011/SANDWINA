@@ -14,6 +14,13 @@ export async function GET(request: NextRequest) {
   const roleParam = requestUrl.searchParams.get('role') as 'client' | 'coach' | 'admin' | null;
   const adminKeyParam = requestUrl.searchParams.get('adminKey');
 
+  console.log('🔍 OAuth Callback Debug:', {
+    hasCode: !!code,
+    roleParam,
+    adminKeyParam,
+    fullUrl: requestUrl.toString(),
+  });
+
   if (code) {
     const supabase = createRouteHandlerClient<Database>({ cookies });
 
@@ -21,11 +28,13 @@ export async function GET(request: NextRequest) {
     const { data: { session }, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
 
     if (sessionError) {
-      console.error('Session error:', sessionError);
+      console.error('❌ Session error:', sessionError);
       return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
     }
 
     if (session?.user) {
+      console.log('✅ Session created for user:', session.user.email);
+
       // Check if profile exists (to determine if this is a new signup)
       const { data: existingProfile } = await supabase
         .from('profiles')
@@ -33,8 +42,11 @@ export async function GET(request: NextRequest) {
         .eq('id', session.user.id)
         .single();
 
+      console.log('📊 Profile check:', { existingProfile });
+
       // If profile exists, user is signing in (not signing up)
       if (existingProfile) {
+        console.log('👤 Existing user, redirecting to dashboard');
         // Redirect to appropriate dashboard based on their existing role
         const dashboardUrl = existingProfile.role === 'admin'
           ? '/dashboard/admin'
@@ -49,9 +61,12 @@ export async function GET(request: NextRequest) {
       const role = roleParam || 'client';
       const adminKey = adminKeyParam;
 
+      console.log('🆕 New user signup - Role:', role);
+
       // Validate admin signup
       if (role === 'admin') {
         if (!adminKey || adminKey !== ADMIN_SIGNUP_KEY) {
+          console.log('❌ Invalid admin key');
           await supabase.auth.signOut();
           return NextResponse.redirect(
             new URL('/signup/admin?error=invalid_admin_key', request.url)
@@ -60,36 +75,45 @@ export async function GET(request: NextRequest) {
       }
 
       // Wait for trigger to complete creating the profile
-      await new Promise(resolve => setTimeout(resolve, 200));
+      console.log('⏳ Waiting for trigger to complete...');
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       // Update profile with correct role (trigger created it with default 'client')
+      console.log('📝 Updating profile role to:', role);
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ role })
         .eq('id', session.user.id);
 
       if (updateError) {
-        console.error('Error updating profile role:', updateError);
+        console.error('❌ Error updating profile role:', updateError);
+      } else {
+        console.log('✅ Profile role updated successfully');
       }
 
       // If coach, create coach record
       if (role === 'coach') {
+        console.log('👔 Creating coach record...');
         const { error: coachError } = await supabase
           .from('coaches')
           .insert({ id: session.user.id, is_approved: false });
 
         if (coachError) {
-          console.error('Error creating coach record:', coachError);
+          console.error('❌ Error creating coach record:', coachError);
+        } else {
+          console.log('✅ Coach record created successfully');
         }
 
         return NextResponse.redirect(new URL('/dashboard/coach/onboarding', request.url));
       }
 
       const dashboardUrl = role === 'admin' ? '/dashboard/admin' : '/dashboard';
+      console.log('🎯 Redirecting to:', dashboardUrl);
       return NextResponse.redirect(new URL(dashboardUrl, request.url));
     }
   }
 
   // Fallback redirect
+  console.log('⚠️ Fallback redirect to dashboard');
   return NextResponse.redirect(new URL('/dashboard', request.url));
 }
