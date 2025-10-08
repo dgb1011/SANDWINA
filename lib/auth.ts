@@ -60,9 +60,14 @@ export async function signInWithGoogle() {
 export async function signUpWithGoogle(role: UserRole, adminKey?: string) {
   const supabase = createClient();
 
-  // Encode role and adminKey in the redirect URL as query params
-  // This is more reliable than using metadata for OAuth flows
-  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?role=${role}${adminKey ? `&adminKey=${adminKey}` : ''}`;
+  // Store role and adminKey in localStorage before OAuth redirect
+  // This is necessary because Supabase strips query params from redirectTo URL
+  localStorage.setItem('oauth_signup_role', role);
+  if (adminKey) {
+    localStorage.setItem('oauth_signup_admin_key', adminKey);
+  }
+
+  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`;
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
